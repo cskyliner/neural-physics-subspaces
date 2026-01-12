@@ -16,6 +16,8 @@ add_requires("fmt")
 add_requires("tinyobjloader")
 add_requires("yaml-cpp")
 add_requires("eigen")
+add_requires("pybind11", {configs = {python = "python3"}})
+
 
 if is_plat("macosx") then
     add_defines("PLATFORM_MACOSX")
@@ -51,6 +53,24 @@ target("engine")
     add_packages("fmt"          , { public = true })
     add_packages("tinyobjloader", { public = true })
     add_packages("yaml-cpp"     , { public = true })
+    add_packages("pybind11"     , { public = true })
+    
+    -- Python 配置（尝试从环境变量自动检测，如果失败则使用默认路径）
+    on_load(function (target)
+        local conda_prefix = os.getenv("CONDA_PREFIX")
+        if conda_prefix then
+            print("Using conda environment: " .. conda_prefix)
+            target:add("includedirs", path.join(conda_prefix, "include/python3.9"), { public = true })
+            target:add("linkdirs", path.join(conda_prefix, "lib"), { public = true })
+            target:add("rpathdirs", path.join(conda_prefix, "lib"))
+        else
+            print("CONDA_PREFIX not set, using default path")
+            target:add("includedirs", "/home/kylin/miniconda3/envs/subspace_env_clean/include/python3.9", { public = true })
+            target:add("linkdirs", "/home/kylin/miniconda3/envs/subspace_env_clean/lib", { public = true })
+            target:add("rpathdirs", "/home/kylin/miniconda3/envs/subspace_env_clean/lib")
+        end
+        target:add("links", "python3.9", { public = true })
+    end)
 
     add_includedirs("src/3rdparty", { public = true })
     add_includedirs("src/VCX"     , { public = true })
@@ -70,10 +90,11 @@ target("lab-common")
     add_headerfiles("src/VCX/Labs/Common/*.h")
     add_files      ("src/VCX/Labs/Common/*.cpp")
 
-target("lab4")
+target("NeuralPhysicsSubspaces")
     set_kind("binary")
     add_deps("lab-common")
     add_packages("eigen")
-    add_headerfiles("src/VCX/Labs/4-Animation/*.h")
-    add_headerfiles("src/VCX/Labs/4-Animation/*.hpp")
-    add_files      ("src/VCX/Labs/4-Animation/*.cpp")
+    set_rundir(os.projectdir()) 
+    add_headerfiles("src/VCX/Labs/Core/*.h")
+    add_headerfiles("src/VCX/Labs/Core/*.hpp")
+    add_files      ("src/VCX/Labs/Core/*.cpp")
