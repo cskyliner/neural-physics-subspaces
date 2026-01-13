@@ -60,35 +60,58 @@ neural-physics-hybrid/
 |--output/                                  # 记录data-free训练参数和一些相关配置
 ```
 
-## 运行方式
+## 环境配置与运行方式
 
-### 可视化界面运行：
+**注意**：
 
-1. 安装XMAKE，参考官网：https://xmake.io/#/zh-cn/guide/installation
-2. 克隆本仓库到本地
-3. 进入项目根目录，使用`conda`创建Python虚拟环境，根据给出的`environment.yml`安装依赖包：
+强烈建议使用**conda**进行环境管理，以避免依赖冲突问题或者python路径检测失败问题
+
+同时确保安装JAX库，可以参考官方安装：<https://jax.readthedocs.io/en/latest/>
+
+CPU-only (Linux/macOS/Windows)
+
+```bash
+pip install -U jax
+```
+
+GPU (NVIDIA, CUDA 13)
+
+```bash
+pip install -U "jax[cuda13]"
+```
+
+### 可视化界面运行
+
++ 安装XMAKE，参考官网：<https://xmake.io/#/zh-cn/guide/installation>
++ 克隆本仓库到本地
++ 进入项目根目录，使用`conda`创建Python虚拟环境，根据给出的`environment.yml`安装依赖包：
+
 ```bash
 conda env create -f environment.yml
 conda activate subspace_env_clean
 ```
 
-**注意**：确保安装JAX库，可以参考官方安装：https://jax.readthedocs.io/en/latest/
++ 使用XMAKE编译项目：（因为项目编译内容较多，推荐使用单线程编译以避免并发问题）
 
-4. 使用XMAKE编译项目：（因为项目编译内容较多，推荐使用单线程编译以避免并发问题）
 ```bash
 xmake build -j1
 ```
-5. 运行程序：
+
++ 运行程序：
+
 ```bash
 xmake run NeuralPhysicsSubspaces
 ```
-6. 在程序界面中选择不同的物理模拟案例进行交互和可视化。
 
-### 训练：
++ 在程序界面中选择不同的物理模拟案例进行交互和可视化。
+
+### 训练
 
 参考[原始代码仓库](https://github.com/nmwsharp/neural-physics-subspaces/tree/main)，
 使用如下命令进行训练：
+
 ```bash
 python python/main_learn_subspace.py --system_name [system_name] --problem_name [problem_name] --subspace_dim=8 --weight_expand=1.0 --sigma_scale=1.0 --output_dir output/
 ```
+
 其中`[system_name]`和`[problem_name]`可以参考`system_templates.py`中的定义。而`subspace_dim`，`weight_expand`和`sigma_scale`均为超参数，可以根据需要进行调整。具体调整方式可以查看[论文](https://arxiv.org/abs/2305.03846)。

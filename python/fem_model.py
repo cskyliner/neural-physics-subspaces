@@ -122,8 +122,21 @@ def mean_strain_metric(system_def, mesh, V):
     return (A*rigidity_density).sum() / A.sum()
 
 def tet_mesh_boundary_faces(tets):
-    # numpy to numpy
-    return igl.boundary_facets(tets)
+    """
+    Extract boundary triangles from tetrahedral mesh.
+    Uses igl.boundary_facets if available, otherwise falls back to manual extraction.
+    """
+    tets = np.asarray(tets, dtype=np.int32)
+
+    # Try using igl.boundary_facets first (most reliable)
+    if hasattr(igl, 'boundary_facets'):
+        result = igl.boundary_facets(tets)
+        # Windows version returns (F, J, K), Linux may return just F
+        if isinstance(result, tuple):
+            boundary_faces = result[0]  # F is the first element
+        else:
+            boundary_faces = result
+        return np.asarray(boundary_faces, dtype=np.int32, order='C')
 
 def precompute_mesh(mesh):
    
@@ -240,7 +253,13 @@ def load_tri_mesh( file_name_root ):
     return mesh
 
 def load_tet_mesh_igl(file_name_root, normalize=True):
-    verts, tets, _ = igl.read_mesh( file_name_root )
+    # Cross-platform compatibility: Linux uses read_mesh, Windows uses readMESH
+    if hasattr(igl, 'read_mesh'):
+        verts, tets, _ = igl.read_mesh( file_name_root )
+    elif hasattr(igl, 'readMESH'):
+        verts, tets, _ = igl.readMESH( file_name_root )
+    else:
+        raise RuntimeError("igl module has neither read_mesh nor readMESH function")
 
     if normalize:
         center = (verts.max(axis = 0) + verts.min(axis = 0))/2
@@ -330,10 +349,12 @@ class FEMSystem:
         def get_visualization_data(self, system_def, q):
             # Returns mesh data with regions/colors for C++ rendering  
             pos = self.get_full_position(self, system_def, q)
-            mesh_data = {'vertices': pos}
+            # Ensure vertices is a proper numpy float64 array in C order
+            mesh_data = {'vertices': np.asarray(pos, dtype=np.float64, order='C')}
             
             if self.pos_dim == 2:
-                mesh_data['faces'] = self.mesh['E']
+                # Ensure faces is int32 numpy array in C order
+                mesh_data['faces'] = np.asarray(self.mesh['E'], dtype=np.int32, order='C')
                 mesh_data['face_type'] = 'triangles'
                 
                 # Add bistable endcaps for 2D
@@ -350,21 +371,22 @@ class FEMSystem:
                         [+s+w,-h],
                         [+s+w,+h],
                         [+s  ,+h],
-                    ])
+                    ], dtype=np.float64, order='C')
                     mesh_data['extra_vertices'] = quad_block_verts
-                    mesh_data['extra_faces'] = np.array([[0,1,2,3], [4,5,6,7]])
+                    mesh_data['extra_faces'] = np.array([[0,1,2,3], [4,5,6,7]], dtype=np.int32, order='C')
                     mesh_data['extra_face_type'] = 'quads'
             else:
                 if 'boundary_triangles' in self.mesh:
-                    mesh_data['faces'] = self.mesh['boundary_triangles']
+                    # Ensure boundary_triangles is int32 numpy array in C order
+                    mesh_data['faces'] = np.asarray(self.mesh['boundary_triangles'], dtype=np.int32, order='C')
                     mesh_data['face_type'] = 'surface'
                 else:
-                    mesh_data['faces'] = self.mesh['E']
+                    mesh_data['faces'] = np.asarray(self.mesh['E'], dtype=np.int32, order='C')
                     mesh_data['face_type'] = 'volume'
             
             # Add regions if available
             if 'regions' in self.mesh:
-                mesh_data['regions'] = self.mesh['regions']
+                mesh_data['regions'] = np.asarray(self.mesh['regions'], dtype=np.int32, order='C')
             
             return mesh_data
         system.get_visualization_data = get_visualization_data

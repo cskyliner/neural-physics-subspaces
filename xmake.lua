@@ -21,7 +21,6 @@ add_requires("yaml-cpp")
 add_requires("eigen")
 add_requires("pybind11")
 
-
 if is_plat("macosx") then
     add_defines("PLATFORM_MACOSX")
 end
@@ -48,6 +47,74 @@ target("assets")
 target("engine")
     set_kind("static")
     add_rules("c++.unity_build", {batchsize = 0})
+    
+    -- 支持 Conda 和系统 Python 环境
+    on_load(function (target)
+        local conda_prefix = os.getenv("CONDA_PREFIX")
+        local python_path = nil
+        local python_version = nil
+        
+        if conda_prefix then
+            -- 优先使用 Conda 环境
+            print("Using Conda Python: " .. conda_prefix)
+            python_path = conda_prefix
+            python_version = "39"
+        else
+            -- 尝试从系统查找 Python
+            print("CONDA_PREFIX not set, attempting to use system Python...")
+            
+            if is_host("windows") then
+                -- Windows: 尝试从注册表或环境变量获取 Python 路径
+                local python_exe = os.getenv("PYTHON_HOME")
+                if not python_exe then
+                    -- 尝试使用 where python 命令
+                    local result = os.iorun("where python")
+                    if result then
+                        python_exe = path.directory(result:trim())
+                    end
+                end
+                
+                if python_exe then
+                    python_path = python_exe
+                    -- 检测 Python 版本
+                    local version_result = os.iorun(path.join(python_exe, "python.exe") .. " --version")
+                    if version_result and version_result:find("3.9") then
+                        python_version = "39"
+                    elseif version_result and version_result:find("3.1") then
+                        python_version = "310"
+                    elseif version_result and version_result:find("3.11") then
+                        python_version = "311"
+                    else
+                        python_version = "39"  -- 默认 Python 3.9
+                    end
+                    print("Found Python at: " .. python_path)
+                end
+            else
+                -- Linux/macOS: 尝试从 which python3 获取
+                local python_exe = os.iorun("which python3")
+                if python_exe then
+                    python_path = path.directory(python_exe:trim())
+                    python_version = "39"  -- 假设 3.9
+                    print("Found Python at: " .. python_path)
+                end
+            end
+        end
+        
+        if python_path then
+            if is_host("windows") then
+                target:add("includedirs", path.join(python_path, "include"), { public = true })
+                target:add("linkdirs", path.join(python_path, "libs"), { public = true })
+                target:add("links", "python" .. python_version, { public = true })
+            else
+                target:add("includedirs", path.join(python_path, "include/python3.9"), { public = true })
+                target:add("linkdirs", path.join(python_path, "lib"), { public = true })
+                target:add("links", "python3.9", { public = true })
+            end
+        else
+            print("Warning: Could not find Python. Build may fail.")
+        end
+    end)
+    
     add_packages("glad"         , { public = true })
     add_packages("glfw"         , { public = true })
     add_packages("glm"          , { public = true })
@@ -58,36 +125,6 @@ target("engine")
     add_packages("tinyobjloader", { public = true })
     add_packages("yaml-cpp"     , { public = true })
     add_packages("pybind11"     , { public = true })
-    
-    -- Python configuration: dynamically detect python path instead of hardcoding
-    on_load(function (target)
-        local python_prefix = os.getenv("CONDA_PREFIX")
-        local python_ver = "3.9"
-        
-        if not python_prefix then
-            -- Fallback to current python3 in path
-            local result = os.iorun("python3 -c 'import sys; print(sys.prefix)'")
-            if result then
-                python_prefix = result:trim()
-            end
-        end
-
-        if python_prefix then
-            -- Detect version
-            local result = os.iorun("python3 -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")'")
-            if result then
-                python_ver = result:trim()
-            end
-
-            print("Using Python environment: " .. python_prefix .. " (version " .. python_ver .. ")")
-            target:add("includedirs", path.join(python_prefix, "include/python" .. python_ver), { public = true })
-            target:add("linkdirs", path.join(python_prefix, "lib"), { public = true })
-            target:add("rpathdirs", path.join(python_prefix, "lib"))
-            target:add("links", "python" .. python_ver, { public = true })
-        else
-            print("Warning: Could not detect Python environment. Please set CONDA_PREFIX or ensure python3 is in PATH.")
-        end
-    end)
 
     add_includedirs("src/3rdparty", { public = true })
     add_includedirs("src/VCX"     , { public = true })
@@ -114,3 +151,23 @@ target("NeuralPhysicsSubspaces")
     set_rundir(os.projectdir()) 
     add_headerfiles("src/VCX/Labs/Core/*.h")
     add_files      ("src/VCX/Labs/Core/*.cpp")
+    
+    on_run(function (target)
+        import("core.base.option")
+        local args = option.get("arguments") or {}
+        
+        -- 支持 Conda 和系统 Python
+        local conda_prefix = os.getenv("CONDA_PREFIX")
+        local env = {}
+        if conda_prefix then
+            -- Conda 环境
+            env["PYTHONHOME"] = conda_prefix
+            env["PATH"] = conda_prefix .. "\\Library\\bin;" .. conda_prefix .. ";" .. (os.getenv("PATH") or "")
+        else
+            -- 系统 Python 环境，只设置必要的 PATH
+            local system_path = os.getenv("PATH") or ""
+            env["PATH"] = system_path
+        end
+        
+        os.execv(target:targetfile(), args, {curdir = target:rundir(), envs = env})
+    end)

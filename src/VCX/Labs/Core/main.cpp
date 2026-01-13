@@ -12,7 +12,7 @@ namespace {
 void ConfigureLoggingFromEnv() {
     const char* env = std::getenv("VCX_LOG_LEVEL");
     if (!env) {
-        spdlog::set_level(spdlog::level::off);
+        spdlog::set_level(spdlog::level::info); // 默认日志级别
         return;
     }
     std::string level{env};
