@@ -88,7 +88,7 @@ pip install -U "jax[cuda13]"
 
 ```bash
 conda env create -f environment.yml
-conda activate subspace_env_clean
+conda activate neural-physics-subspaces
 ```
 
 + 使用XMAKE编译项目：（因为项目编译内容较多，推荐使用单线程编译以避免并发问题）
