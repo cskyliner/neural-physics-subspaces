@@ -109,6 +109,8 @@ target("engine")
                 target:add("includedirs", path.join(python_path, "include/python3.9"), { public = true })
                 target:add("linkdirs", path.join(python_path, "lib"), { public = true })
                 target:add("links", "python3.9", { public = true })
+                -- Set RPATH for Linux/macOS to find Python shared library at runtime
+                target:add("ldflags", "-Wl,-rpath," .. path.join(python_path, "lib"), { force = true, public = true })
             end
         else
             print("Warning: Could not find Python. Build may fail.")
@@ -162,7 +164,13 @@ target("NeuralPhysicsSubspaces")
         if conda_prefix then
             -- Conda 环境
             env["PYTHONHOME"] = conda_prefix
-            env["PATH"] = conda_prefix .. "\\Library\\bin;" .. conda_prefix .. ";" .. (os.getenv("PATH") or "")
+            if is_host("windows") then
+                env["PATH"] = conda_prefix .. "\\Library\\bin;" .. conda_prefix .. ";" .. (os.getenv("PATH") or "")
+            else
+                -- Linux/macOS: Set LD_LIBRARY_PATH for conda environment
+                env["PATH"] = path.join(conda_prefix, "bin") .. ":" .. (os.getenv("PATH") or "")
+                env["LD_LIBRARY_PATH"] = path.join(conda_prefix, "lib") .. ":" .. (os.getenv("LD_LIBRARY_PATH") or "")
+            end
         else
             -- 系统 Python 环境，只设置必要的 PATH
             local system_path = os.getenv("PATH") or ""
