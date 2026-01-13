@@ -45,9 +45,13 @@ public:
     ~PhysicsBridge();
     
     // 状态管理
+    // 重新设置物理状态
     void ResetState();
+    // 停止速度
     void StopVelocity();
+    // 获取当前状态
     std::vector<double> GetState() const;
+    // 设置当前状态
     void SetState(const std::vector<double>& state);
     
     // 仿真
@@ -89,12 +93,14 @@ private:
     py::object _subspace_apply;     // 子空间映射函数
     py::object _subspace_domain_dict; // 子空间域信息
     double _t_schedule_final;       // 扩散调度最终值
-    
+    // 子空间映射
+    py::object StateToSystem(const py::object& state);
+    // 初始化Python环境和路径
     void InitializePython(const std::string& pythonPath);
+    // 加载物理系统
     void LoadSystem(const std::string& systemName, 
                    const std::string& problemName,
                    const std::string& subspaceModelPath);
-    py::object StateToSystem(const py::object& state);
 };
 
 } // namespace VCX::Engine::Python::FEM

@@ -2,7 +2,7 @@
 
 ## 架构
 
-我们希望对原论文进行复现，框架则采用XMAKE作为构建配置，Imgui为图形化界面，OpenGL作为渲染器，对于论文中涉及到JAX等自动微分和深度学习库的单元，采用pybind11进行打包，总体工作流程就是xmake编译，Imgui负责交互和可视化，OpenGL负责渲染，pybind11负责Python与C++的交互；其中交互主要涉及两个方面，一是几何数据的传递，二是物理模拟和训练的调用。对于训练部分则完全使用原代码的Python实现，只是将结果进行加载。
+我们希望对原论文进行复现，框架则采用**XMAKE**作为构建配置，**Imgui**为图形化界面，**OpenGL**作为渲染器，对于论文中涉及到**JAX**等**自动微分和深度学习库**的单元，采用**pybind11**进行打包。总体工作流程就是xmake编译，Imgui负责交互和可视化，OpenGL负责渲染，pybind11负责Python与C++的交互；其中交互主要涉及两个方面，一是几何数据的传递，二是物理模拟和训练的调用。对于训练部分则完全使用原代码的Python实现，只是将输出结果进行加载和可视化。
 
 ```
 neural-physics-hybrid/
@@ -23,7 +23,7 @@ neural-physics-hybrid/
 |   │   └── utils.py                    # 工具函数
 |   ├── 3rdparty/
 │   └── VCX/
-│       |--Assets/
+│       |--Assets/                          # 资源文件，负责图标和字体的设置
 │       |--Engine/
 |           |--GL/                          # 基本渲染
 |           |--Python/                      # Python 交互模块
@@ -60,4 +60,35 @@ neural-physics-hybrid/
 |--output/                                  # 记录data-free训练参数和一些相关配置
 ```
 
-## 可视化
+## 运行方式
+
+### 可视化界面运行：
+
+1. 安装XMAKE，参考官网：https://xmake.io/#/zh-cn/guide/installation
+2. 克隆本仓库到本地
+3. 进入项目根目录，使用`conda`创建Python虚拟环境，根据给出的`environment.yml`安装依赖包：
+```bash
+conda env create -f environment.yml
+conda activate subspace_env_clean
+```
+
+**注意**：确保安装JAX库，可以参考官方安装：https://jax.readthedocs.io/en/latest/
+
+4. 使用XMAKE编译项目：（因为项目编译内容较多，推荐使用单线程编译以避免并发问题）
+```bash
+xmake build -j1
+```
+5. 运行程序：
+```bash
+xmake run NeuralPhysicsSubspaces
+```
+6. 在程序界面中选择不同的物理模拟案例进行交互和可视化。
+
+### 训练：
+
+参考[原始代码仓库](https://github.com/nmwsharp/neural-physics-subspaces/tree/main)，
+使用如下命令进行训练：
+```bash
+python python/main_learn_subspace.py --system_name [system_name] --problem_name [problem_name] --subspace_dim=8 --weight_expand=1.0 --sigma_scale=1.0 --output_dir output/
+```
+其中`[system_name]`和`[problem_name]`可以参考`system_templates.py`中的定义。而`subspace_dim`，`weight_expand`和`sigma_scale`均为超参数，可以根据需要进行调整。具体调整方式可以查看[论文](https://arxiv.org/abs/2305.03846)。

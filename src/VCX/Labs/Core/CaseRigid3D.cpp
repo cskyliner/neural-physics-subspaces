@@ -157,7 +157,7 @@ void CaseRigid3D::OnSetupPropsUI() {
         ImGui::Separator();
         
         // 控制按钮
-        if (ImGui::Button("Reset System", ImVec2(120, 0))) {
+        if (ImGui::Button("Reset System", ImVec2(200, 0))) {
             _physics->ResetState();
             if (_useSubspace) {
                 _latentState = _physics->GetState();
@@ -165,7 +165,7 @@ void CaseRigid3D::OnSetupPropsUI() {
         }
         ImGui::SameLine();
         
-        if (ImGui::Button("Stop Velocity", ImVec2(120, 0))) {
+        if (ImGui::Button("Stop Velocity", ImVec2(200, 0))) {
             _physics->StopVelocity();
         }
         
@@ -175,7 +175,7 @@ void CaseRigid3D::OnSetupPropsUI() {
         ImGui::Checkbox("Run Simulation", &_runSimulation);
         
         ImGui::SameLine();
-        if (ImGui::Button("Single Step", ImVec2(100, 0))) {
+        if (ImGui::Button("Single Step", ImVec2(200, 0))) {
             _physics->Timestep(_timestep);
             if (_useSubspace) {
                 _latentState = _physics->GetState();

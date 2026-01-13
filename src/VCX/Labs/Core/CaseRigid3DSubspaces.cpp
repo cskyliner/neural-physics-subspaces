@@ -135,9 +135,6 @@ void CaseRigid3DSpaces::OnSetupPropsUI() {
     if (ImGui::CollapsingHeader("Model Loader", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Load Neural Subspace Models");
         
-        // 显示当前问题
-        ImGui::Text("Current Problem: %s", _currentProblem.c_str());
-        
         // 获取可用维度
         auto& loader = ModelLoader::GetInstance();
         std::vector<int> availableDims = loader.GetDimsForTypeAndProblem(ModelType::Rigid3D, _currentProblem);
@@ -239,27 +236,11 @@ void CaseRigid3DSpaces::OnSetupPropsUI() {
         }
         
         if (_useSubspace) {
-            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "✓ Subspace model loaded");
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Subspace model loaded");
             ImGui::Text("Latent Dim: %d", _subspaceDim);
         }
     }
     ImGui::Spacing();
-    // ==================== 系统信息 ====================
-    if (ImGui::CollapsingHeader("System Information", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Text("System Type: Rigid 3D");
-        ImGui::Text("Problem: %s", _currentProblem.c_str());
-        ImGui::Text("Full Dimension: %d", _fullDim);
-        
-        if (_useSubspace) {
-            ImGui::Separator();
-            ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.3f, 1.0f), "Subspace Mode Enabled");
-            ImGui::Text("Subspace Dimension: %d", _subspaceDim);
-            ImGui::Text("Compression Ratio: %.1f%%", 
-                       100.0f * _subspaceDim / std::max(_fullDim, 1));
-        }
-    }
-    ImGui::Spacing();
-    
     // ==================== 子空间探索 ====================
     if (_useSubspace && ImGui::CollapsingHeader("Latent Space Explorer")) {
         ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1.0f), 
@@ -380,7 +361,18 @@ void CaseRigid3DSpaces::OnSetupPropsUI() {
     ImGui::Spacing();
     
     // ==================== 帮助信息 ====================
-    if (ImGui::CollapsingHeader("Controls & Help")) {
+    if (ImGui::CollapsingHeader("Information & Control Help")) {
+        ImGui::Text("System Type: Rigid 3D");
+        ImGui::Text("Problem: %s", _currentProblem.c_str());
+        ImGui::Text("Full Dimension: %d", _fullDim);
+        
+        if (_useSubspace) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.3f, 1.0f), "Subspace Mode Enabled");
+            ImGui::Text("Subspace Dimension: %d", _subspaceDim);
+            ImGui::Text("Compression Ratio: %.1f%%", 
+                       100.0f * _subspaceDim / std::max(_fullDim, 1));
+        }
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 1.0f), "Camera Controls:");
         ImGui::Indent();
         ImGui::BulletText("Left Mouse: Rotate view");

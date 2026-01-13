@@ -90,4 +90,4 @@ public:
     virtual void OnProcessInput(ImVec2 const & pos) override;
 };
 
-} // namespace VCX:: Labs::NeuralPhysics
+} // namespace VCX::Labs::NeuralPhysicsSubspaces
