@@ -67,8 +67,8 @@ public:
     void SetForceStrength(float strength);
     
     // 重新加载问题
-    void ReloadProblem(const std::string& problemName);
-    
+    void ReloadProblem(const std::string& problemName, const std::string& subspaceModelPath = "");
+    void SetSubspaceModel(const std::string& subspaceModelPath);
 private:
     py::object _system;             // Python FEMSystem对象
     py::object _system_def;         // system_def字典
@@ -81,7 +81,10 @@ private:
     int _posDim;  // 2D or 3D
     ExternalForce _externalForce;
     
-    py::object _subspace_fn;  // 子空间映射函数
+    // 子空间相关
+    py::object _subspace_apply;     // 子空间映射函数
+    py::object _subspace_domain_dict; // 子空间域信息
+    double _t_schedule_final;       // 扩散调度最终值
     
     void InitializePython(const std::string& pythonPath);
     void LoadSystem(const std::string& systemName, 

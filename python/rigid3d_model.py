@@ -33,35 +33,7 @@ def make_body(file, density, scale):
 
     x0 = jnp.array( [[1, 0, 0],[0, 1, 0],[0, 0, 1], c] )
 
-    # 从文件名提取颜色信息
-    filename = os.path.basename(file).lower()
-    color = None
-    if 'red' in filename:
-        color = np.array([0.8, 0.2, 0.2])  # 红色
-    elif 'purple' in filename:
-        color = np.array([0.6, 0.2, 0.8])  # 紫色
-    elif 'brown' in filename:
-        color = np.array([0.6, 0.4, 0.2])  # 棕色
-    elif 'blue' in filename:
-        color = np.array([0.2, 0.4, 0.8])  # 蓝色
-    elif 'green' in filename:
-        color = np.array([0.2, 0.8, 0.3])  # 绿色
-    elif 'orange' in filename:
-        color = np.array([0.9, 0.5, 0.2])  # 橙色
-    elif 'yellow' in filename:
-        color = np.array([0.9, 0.9, 0.2])  # 黄色
-    elif 'base' in filename:
-        color = np.array([0.5, 0.5, 0.5])  # 灰色 (底座)
-    elif 'arm' in filename:
-        color = np.array([0.7, 0.3, 0.3])  # 深红色 (手臂)
-    elif 'strut' in filename:
-        color = np.array([0.3, 0.6, 0.7])  # 青色 (支柱)
-    elif 'top' in filename:
-        color = np.array([0.4, 0.7, 0.4])  # 绿色 (顶部)
-    elif 'distal' in filename:
-        color = np.array([0.9, 0.6, 0.3])  # 橙色
-    
-    body = {'v': v, 'f': f, 'W':W, 'x0': x0, 'mass': mass, 'color': color }
+    body = {'v': v, 'f': f, 'W':W, 'x0': x0, 'mass': mass }
     return body
 
 def make_joint( b0, b1, bodies, joint_pos_world, joint_vec_world ):
@@ -273,17 +245,13 @@ class Rigid3DSystem:
         system.get_full_position = get_full_position
 
         def get_visualization_data(self, system_def, q):
-            # Returns list of (vertices, faces, color) for each body
+            # Returns list of (vertices, faces) for each body
             xr = jnp.concatenate((system_def['fixed_pos'], q)).reshape(-1, 4, 3)
             bodies_data = []
             for bid in range(self.n_bodies):
                 v = np.array(jnp.matmul(self.bodiesRen[bid]['W'], xr[bid]))
                 f = np.array(self.bodiesRen[bid]['f'])
-                body_dict = {'vertices': v, 'faces': f}
-                # 如果刚体有颜色信息，添加到返回值
-                if 'color' in self.bodiesRen[bid] and self.bodiesRen[bid]['color'] is not None:
-                    body_dict['color'] = self.bodiesRen[bid]['color']
-                bodies_data.append(body_dict)
+                bodies_data.append({'vertices': v, 'faces': f})
             return bodies_data
         system.get_visualization_data = get_visualization_data
 

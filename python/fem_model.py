@@ -304,9 +304,7 @@ class FEMSystem:
 
     @staticmethod
     def construct(problem_name):
-
-        print("JAX backend platform:", jax.default_backend())
-        print("JAX devices:", jax.devices())
+        
         system_def = {}
         system = FEMSystem()
 

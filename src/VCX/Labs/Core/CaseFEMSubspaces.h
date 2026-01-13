@@ -15,16 +15,20 @@
 
 namespace VCX::Labs::NeuralPhysicsSubspaces {
 
-class CaseFEM : public Common::ICase {
+class CaseFEMSpaces : public Common::ICase {
 private:
     // Python 物理引擎
     std::unique_ptr<Engine::Python::FEM::PhysicsBridge> _physics;
     std::string _pythonPath;
     
-    // 问题选择
+    // 问题与模型选择
+    std::vector<std::string> _problemNames = {"bistable", "load3d", "heterobeam"};
     int _currentProblemIdx = 0;
-    std:: vector<std::string> _problemNames = {"bistable", "load3d", "heterobeam"};
     std::string _currentProblem = "bistable";
+    int _currentDim = 8;
+    int _selectedCheckpoint = -1;  // -1 for final
+    std::string _currentWexp = "wexp1";
+    CheckpointRange _currentRange;
     bool _needReload = false;
     
     // 系统信息
@@ -72,17 +76,17 @@ private:
     Engine::Camera _camera;
     
     // 内部方法
-    void LoadProblem(const std::string& problemName);
+    void LoadSelectedModel();
     void LoadExternalParams();
     void ApplyExternalParams();
     void UpdateVisualization();
     void RenderScene(std::pair<std::uint32_t, std::uint32_t> const size);
 
 public:
-    CaseFEM(const std::string& pythonPath = "");
+    CaseFEMSpaces(const std::string& pythonPath = "");
     
     virtual std::string_view const GetName() override { 
-        return "FEM System"; 
+        return "FEM Subspaces System"; 
     }
     
     virtual void OnSetupPropsUI() override;

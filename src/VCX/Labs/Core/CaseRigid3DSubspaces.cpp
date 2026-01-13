@@ -1,10 +1,10 @@
-#include "CaseRigid3D.h"
+#include "CaseRigid3DSubspaces.h"
 #include <imgui.h>
 #include <spdlog/spdlog.h>
 
 namespace VCX::Labs::NeuralPhysicsSubspaces {
 
-CaseRigid3D::CaseRigid3D(const std::string& pythonPath)
+CaseRigid3DSpaces::CaseRigid3DSpaces(const std::string& pythonPath)
     : _pythonPath([&pythonPath]() {
         // 如果提供了路径，直接使用
         if (!pythonPath.empty()) {
@@ -27,47 +27,42 @@ CaseRigid3D::CaseRigid3D(const std::string& pythonPath)
           .Add<glm::vec3>("color", Engine::GL::DrawFrequency::Stream, 1), 
           Engine::GL::PrimitiveType::Triangles) {
     
-    // 设置相机
-    _cameraManager.AutoRotate = false;
-    _cameraManager.Save(_camera);
-    
-    // 加载默认问题并初始化Python桥接
-    LoadProblem(_currentProblem);
-    
-    spdlog::info("[CaseRigid3D] Initialized with problem: {}", _currentProblem);
-}
-
-void CaseRigid3D::LoadProblem(const std::string& problemName) {
-    spdlog::info("[CaseRigid3D] Loading problem: {}", problemName);
-    
-    // 如果已经有物理引擎，重新加载问题；否则创建新的，不然会出现无法重复构建导致画面无法更新的问题
-    if (_physics) {
-        _physics->ReloadProblem(problemName);
-    } else {
-        _physics = std::make_unique<Engine::Python::Rigid3D::PhysicsBridge>(
-            _pythonPath, "Rigid3d", problemName, ""
-        );
-    }
+    // 初始化物理引擎，先展示默认问题，避免全空，但是因为模型未知，所以后续会重新加载
+    _physics = std::make_unique<Engine::Python::Rigid3D::PhysicsBridge>(
+        _pythonPath, "rigid3d", _currentProblem, ""
+    );
     
     // 获取系统信息
     _fullDim = _physics->GetFullDim();
     _subspaceDim = _physics->GetSubspaceDim();
     _useSubspace = _physics->UseSubspace();
-    
-    if (_useSubspace) {
-        _latentState = _physics->GetState();
-    }
-    
+    // 重置物理状态
+    _physics->ResetState();
     // 加载外部参数
     LoadExternalParams();
+    // 设置相机
+    _cameraManager.AutoRotate = false;
+    _cameraManager.Save(_camera);
+    // 初始化checkpoint范围
+    auto& loader = ModelLoader::GetInstance();
+    _currentRange = loader.GetCheckpointRange(ModelType::Rigid3D, _currentProblem, _currentDim, _currentWexp);
+    if (_currentRange.hasFinal) {
+        _selectedCheckpoint = -1;
+    } else if (_currentRange.minIndex >= 0) {
+        _selectedCheckpoint = _currentRange.minIndex;
+    }
     
-    _currentProblem = problemName;
-    _needReload = false;
-    
-    spdlog::info("[CaseRigid3D] Problem loaded:  {} (dim: {})", problemName, _fullDim);
+    // 初始化可视化
+    try {
+        UpdateVisualization();
+        spdlog::info("[CaseRigid3DSpaces] Initialized with problem: {}", _currentProblem);
+    } catch (const std::exception& e) {
+        spdlog::error("[CaseRigid3DSpaces] Initial visualization failed: {}", e.what());
+    }
 }
 
-void CaseRigid3D::LoadExternalParams() {
+
+void CaseRigid3DSpaces::LoadExternalParams() {
     // 初始化外部参数
     auto ext = _physics->GetExternalForce();
     _externalParams.hasExternalForces = ext.hasExternalForces;
@@ -82,7 +77,7 @@ void CaseRigid3D::LoadExternalParams() {
     _externalParams.unifiedStrength = 0.0f;
 }
 
-void CaseRigid3D::ApplyExternalParams() {
+void CaseRigid3DSpaces::ApplyExternalParams() {
     // 将参数应用到 Python
     if (_externalParams.hasExternalForces) {
         // 如果用户修改了统一强度，则同步三个轴
@@ -101,17 +96,24 @@ void CaseRigid3D::ApplyExternalParams() {
     }
 }
 
-void CaseRigid3D::OnSetupPropsUI() {
+void CaseRigid3DSpaces::OnSetupPropsUI() {
     // ==================== 问题选择器 ====================
     if (ImGui::CollapsingHeader("Problem Selection", ImGuiTreeNodeFlags_DefaultOpen)) {
         const char* problemItems[] = {"klann", "stewart"};
         
         if (ImGui::Combo("Problem Type", &_currentProblemIdx, problemItems, IM_ARRAYSIZE(problemItems))) {
-            _needReload = true;
-        }
-        
-        if (_needReload) {
-            LoadProblem(_problemNames[_currentProblemIdx]);
+            _currentProblem = _problemNames[_currentProblemIdx];
+            
+            // 重新加载基础问题（无子空间）
+            spdlog::info("[CaseRigid3DSpaces] Problem changed to: {}, reloading base system", _currentProblem);
+            try {
+                _physics->ReloadProblem(_currentProblem, "");  // Empty path = no subspace
+                _useSubspace = false;
+                _fullDim = _physics->GetFullDim();
+                UpdateVisualization();
+            } catch (const std::exception& e) {
+                spdlog::error("[CaseRigid3DSpaces] Failed to reload base problem: {}", e.what());
+            }
         }
         
         ImGui::Spacing();
@@ -120,14 +122,128 @@ void CaseRigid3D::OnSetupPropsUI() {
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Description:");
         ImGui::Indent();
         if (_currentProblem == "klann") {
-            ImGui::BulletText("A 3D mechanism with a complex kinematic structure");
+            ImGui::BulletText("A 3D mechanism");
+            ImGui::BulletText("Complex kinematic structure");
         } else if (_currentProblem == "stewart") {
-            ImGui::BulletText("A Stewart platform with six degrees of freedom");
+            ImGui::BulletText("A Stewart platform");
+            ImGui::BulletText("Six degrees of freedom");
         }
         ImGui::Unindent();
     }
     ImGui::Spacing();
-    
+    // ==================== 模型加载器 ====================
+    if (ImGui::CollapsingHeader("Model Loader", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Load Neural Subspace Models");
+        
+        // 显示当前问题
+        ImGui::Text("Current Problem: %s", _currentProblem.c_str());
+        
+        // 获取可用维度
+        auto& loader = ModelLoader::GetInstance();
+        std::vector<int> availableDims = loader.GetDimsForTypeAndProblem(ModelType::Rigid3D, _currentProblem);
+        
+        // 维度选择
+        if (!availableDims.empty()) {
+            ImGui::Separator();
+            ImGui::Text("Subspace Dimension:");
+            ImGui::Indent();
+            
+            for (int dim : availableDims) {
+                char label[32];
+                snprintf(label, sizeof(label), "Dim %d", dim);
+                if (ImGui::RadioButton(label, _currentDim == dim)) {
+                    _currentDim = dim;
+                    // 获取可用的wexp值，选择第一个作为默认值
+                    std::vector<std::string> availableWexps = loader.GetWexpsForTypeAndProblemDim(ModelType::Rigid3D, _currentProblem, _currentDim);
+                    if (!availableWexps.empty()) {
+                        _currentWexp = availableWexps[0];
+                    }
+                    // 更新checkpoint范围
+                    _currentRange = loader.GetCheckpointRange(ModelType::Rigid3D, _currentProblem, _currentDim, _currentWexp);
+                    // 默认选择final（如果有）或最小索引
+                    if (_currentRange.hasFinal) {
+                        _selectedCheckpoint = -1;
+                    } else if (_currentRange.minIndex >= 0) {
+                        _selectedCheckpoint = _currentRange.minIndex;
+                    }
+                }
+                ImGui::SameLine();
+            }
+            ImGui::NewLine();
+            ImGui::Unindent();
+        }
+        
+        // Wexp选择
+        std::vector<std::string> availableWexps = loader.GetWexpsForTypeAndProblemDim(ModelType::Rigid3D, _currentProblem, _currentDim);
+        if (!availableWexps.empty() && availableWexps.size() >= 1) {
+            ImGui::Separator();
+            ImGui::Text("Hyperparameter (wexp):");
+            ImGui::Indent();
+            
+            for (const auto& wexp : availableWexps) {
+                std::string displayLabel = wexp;  // e.g., "wexp1" or "wexp0.5"
+                if (ImGui::RadioButton(displayLabel.c_str(), _currentWexp == wexp)) {
+                    _currentWexp = wexp;
+                    // 更新checkpoint范围
+                    _currentRange = loader.GetCheckpointRange(ModelType::Rigid3D, _currentProblem, _currentDim, _currentWexp);
+                    // 默认选择final（如果有）或最小索引
+                    if (_currentRange.hasFinal) {
+                        _selectedCheckpoint = -1;
+                    } else if (_currentRange.minIndex >= 0) {
+                        _selectedCheckpoint = _currentRange.minIndex;
+                    }
+                }
+                ImGui::SameLine();
+            }
+            ImGui::NewLine();
+            ImGui::Unindent();
+        }
+        
+        // Checkpoint选择
+        if (_currentRange.minIndex >= 0 || _currentRange.hasFinal) {
+            ImGui::Separator();
+            ImGui::Text("Model Checkpoint:");
+            ImGui::Indent();
+            
+            // Final模型
+            if (_currentRange.hasFinal) {
+                if (ImGui::RadioButton("Final Model", _selectedCheckpoint == -1)) {
+                    _selectedCheckpoint = -1;
+                }
+            }
+            
+            // 使用滑块选择checkpoint
+            if (_currentRange.minIndex >= 0 && _currentRange.maxIndex >= 0) {
+                ImGui::Text("Checkpoint Range: %04d - %04d", _currentRange.minIndex, _currentRange.maxIndex);
+                
+                int currentCheckpoint = (_selectedCheckpoint >= 0) ? _selectedCheckpoint : _currentRange.minIndex;
+                if (ImGui::SliderInt("Checkpoint Index", &currentCheckpoint, 
+                                    _currentRange.minIndex, _currentRange.maxIndex,
+                                    "save%04d")) {
+                    _selectedCheckpoint = currentCheckpoint;
+                }
+                
+                // 显示当前选中checkpoint的实际sigma值
+                auto& loader = ModelLoader::GetInstance();
+                std::string sigma = loader.GetSigmaForCheckpoint(ModelType::Rigid3D, _currentProblem, _currentDim, _currentWexp, currentCheckpoint);
+                ImGui::Text("Sigma: %s", sigma.c_str());
+            }
+            
+            ImGui::Unindent();
+        }
+        
+        // 加载按钮
+        ImGui::Separator();
+        if (ImGui::Button("Load Selected Model", ImVec2(-1, 0))) {
+            LoadSelectedModel();
+        }
+        
+        if (_useSubspace) {
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "✓ Subspace model loaded");
+            ImGui::Text("Latent Dim: %d", _subspaceDim);
+        }
+    }
+    ImGui::Spacing();
     // ==================== 系统信息 ====================
     if (ImGui::CollapsingHeader("System Information", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("System Type: Rigid 3D");
@@ -140,6 +256,39 @@ void CaseRigid3D::OnSetupPropsUI() {
             ImGui::Text("Subspace Dimension: %d", _subspaceDim);
             ImGui::Text("Compression Ratio: %.1f%%", 
                        100.0f * _subspaceDim / std::max(_fullDim, 1));
+        }
+    }
+    ImGui::Spacing();
+    
+    // ==================== 子空间探索 ====================
+    if (_useSubspace && ImGui::CollapsingHeader("Latent Space Explorer")) {
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1.0f), 
+                          "Explore the learned low-dimensional manifold");
+        ImGui::Spacing();
+        
+        bool changed = false;
+        
+        for (size_t i = 0; i < _latentState.size(); ++i) {
+            char label[32];
+            snprintf(label, sizeof(label), "z[%zu]", i);
+            
+            float val = static_cast<float>(_latentState[i]);
+            if (ImGui::SliderFloat(label, &val, -2.0f, 2.0f)) {
+                _latentState[i] = val;
+                changed = true;
+            }
+        }
+        
+        if (changed) {
+            _physics->SetState(_latentState);
+        }
+        
+        ImGui::Spacing();
+        if (ImGui::Button("Reset to Origin", ImVec2(-1, 0))) {
+            _physics->ResetState();
+            if (_useSubspace) {
+                _latentState = _physics->GetState();
+            }
         }
     }
     ImGui::Spacing();
@@ -157,7 +306,7 @@ void CaseRigid3D::OnSetupPropsUI() {
         ImGui::Separator();
         
         // 控制按钮
-        if (ImGui::Button("Reset System", ImVec2(120, 0))) {
+        if (ImGui::Button("Reset System", ImVec2(200, 0))) {
             _physics->ResetState();
             if (_useSubspace) {
                 _latentState = _physics->GetState();
@@ -165,7 +314,7 @@ void CaseRigid3D::OnSetupPropsUI() {
         }
         ImGui::SameLine();
         
-        if (ImGui::Button("Stop Velocity", ImVec2(120, 0))) {
+        if (ImGui::Button("Stop Velocity", ImVec2(200, 0))) {
             _physics->StopVelocity();
         }
         
@@ -175,7 +324,7 @@ void CaseRigid3D::OnSetupPropsUI() {
         ImGui::Checkbox("Run Simulation", &_runSimulation);
         
         ImGui::SameLine();
-        if (ImGui::Button("Single Step", ImVec2(100, 0))) {
+        if (ImGui::Button("Single Step", ImVec2(200, 0))) {
             _physics->Timestep(_timestep);
             if (_useSubspace) {
                 _latentState = _physics->GetState();
@@ -241,7 +390,7 @@ void CaseRigid3D::OnSetupPropsUI() {
     }
 }
 
-Common::CaseRenderResult CaseRigid3D::OnRender(
+Common::CaseRenderResult CaseRigid3DSpaces::OnRender(
     std::pair<std::uint32_t, std::uint32_t> const desiredSize) {
     
     // 执行仿真
@@ -271,7 +420,54 @@ Common::CaseRenderResult CaseRigid3D::OnRender(
     };
 }
 
-void CaseRigid3D::UpdateVisualization() {
+void CaseRigid3DSpaces::LoadSelectedModel() {
+    auto& loader = ModelLoader::GetInstance();
+    
+    // 构建模型路径
+    std::string modelPath = loader.BuildModelPath(ModelType::Rigid3D, _currentProblem, _currentDim, _currentWexp, _selectedCheckpoint);
+    
+    spdlog::info("[CaseRigid3DSpaces] Attempting to load model: {}", modelPath);
+    spdlog::info("[CaseRigid3DSpaces] Problem: {}, Dim: {}, Wexp: {}, Checkpoint: {}", _currentProblem, _currentDim, _currentWexp, _selectedCheckpoint);
+    
+    // 检查_physics是否存在
+    if (!_physics) {
+        spdlog::error("[CaseRigid3DSpaces] Physics engine not initialized!");
+        return;
+    }
+    
+    // 加载子空间模型
+    try {
+        // 先重新加载Rigid3D问题，确保system_def匹配子空间模型
+        spdlog::info("[CaseRigid3DSpaces] Reloading Rigid3D problem to match subspace model");
+        _physics->ReloadProblem(_currentProblem, modelPath);
+        
+        // 更新系统信息
+        _fullDim = _physics->GetFullDim();
+        _subspaceDim = _physics->GetSubspaceDim();
+        _useSubspace = _physics->UseSubspace();
+        
+        if (_useSubspace) {
+            _latentState.resize(_subspaceDim, 0.0);
+            // 重置状态以确保正确初始化
+            _physics->ResetState();
+            _latentState = _physics->GetState();
+        }
+        
+        spdlog::info("[CaseRigid3DSpaces] Model loaded successfully");
+        spdlog::info("[CaseRigid3DSpaces] Subspace dimension: {}, Full dimension: {}", _subspaceDim, _fullDim);
+        
+        // 重新加载外部参数
+        LoadExternalParams();
+        
+        // 更新可视化
+        UpdateVisualization();
+    } catch (const std::exception& e) {
+        spdlog::error("[CaseRigid3DSpaces] Failed to load model: {}", e.what());
+        _useSubspace = false;
+    }
+}
+
+void CaseRigid3DSpaces::UpdateVisualization() {
     auto meshData = _physics->GetVisualizationData();
     
     if (! meshData.bodies.empty()) {
@@ -330,7 +526,7 @@ void CaseRigid3D::UpdateVisualization() {
     }
 }
 
-void CaseRigid3D::RenderScene(std::pair<std::uint32_t, std::uint32_t> const size) {
+void CaseRigid3DSpaces::RenderScene(std::pair<std::uint32_t, std::uint32_t> const size) {
     _frame.Resize(size);
     _cameraManager.Update(_camera);
     
@@ -363,8 +559,8 @@ void CaseRigid3D::RenderScene(std::pair<std::uint32_t, std::uint32_t> const size
     _meshItem.Draw({ _program. Use() });
 }
 
-void CaseRigid3D::OnProcessInput(ImVec2 const & pos) {
+void CaseRigid3DSpaces::OnProcessInput(ImVec2 const & pos) {
     _cameraManager.ProcessInput(_camera, pos);
 }
 
-} // namespace VCX:: Labs::NeuralPhysics
+} // namespace VCX:: Labs::NeuralPhysicsSubspaces

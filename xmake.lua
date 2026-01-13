@@ -4,7 +4,10 @@ set_xmakever("2.6.9")
 set_languages("cxx20")
 
 add_rules("mode.debug", "mode.release", "mode.profile")
-add_cxxflags("/utf-8")
+
+if is_plat("windows") then
+    add_cxxflags("/utf-8")
+end
 
 add_requires("glad")
 add_requires("glfw")
@@ -16,7 +19,7 @@ add_requires("fmt")
 add_requires("tinyobjloader")
 add_requires("yaml-cpp")
 add_requires("eigen")
-add_requires("pybind11", {configs = {python = "python3"}})
+add_requires("pybind11")
 
 
 if is_plat("macosx") then
@@ -44,6 +47,7 @@ target("assets")
 
 target("engine")
     set_kind("static")
+    add_rules("c++.unity_build", {batchsize = 0})
     add_packages("glad"         , { public = true })
     add_packages("glfw"         , { public = true })
     add_packages("glm"          , { public = true })
@@ -55,21 +59,34 @@ target("engine")
     add_packages("yaml-cpp"     , { public = true })
     add_packages("pybind11"     , { public = true })
     
-    -- Python 配置（尝试从环境变量自动检测，如果失败则使用默认路径）
+    -- Python configuration: dynamically detect python path instead of hardcoding
     on_load(function (target)
-        local conda_prefix = os.getenv("CONDA_PREFIX")
-        if conda_prefix then
-            print("Using conda environment: " .. conda_prefix)
-            target:add("includedirs", path.join(conda_prefix, "include/python3.9"), { public = true })
-            target:add("linkdirs", path.join(conda_prefix, "lib"), { public = true })
-            target:add("rpathdirs", path.join(conda_prefix, "lib"))
-        else
-            print("CONDA_PREFIX not set, using default path")
-            target:add("includedirs", "/home/kylin/miniconda3/envs/subspace_env_clean/include/python3.9", { public = true })
-            target:add("linkdirs", "/home/kylin/miniconda3/envs/subspace_env_clean/lib", { public = true })
-            target:add("rpathdirs", "/home/kylin/miniconda3/envs/subspace_env_clean/lib")
+        local python_prefix = os.getenv("CONDA_PREFIX")
+        local python_ver = "3.9"
+        
+        if not python_prefix then
+            -- Fallback to current python3 in path
+            local result = os.iorun("python3 -c 'import sys; print(sys.prefix)'")
+            if result then
+                python_prefix = result:trim()
+            end
         end
-        target:add("links", "python3.9", { public = true })
+
+        if python_prefix then
+            -- Detect version
+            local result = os.iorun("python3 -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")'")
+            if result then
+                python_ver = result:trim()
+            end
+
+            print("Using Python environment: " .. python_prefix .. " (version " .. python_ver .. ")")
+            target:add("includedirs", path.join(python_prefix, "include/python" .. python_ver), { public = true })
+            target:add("linkdirs", path.join(python_prefix, "lib"), { public = true })
+            target:add("rpathdirs", path.join(python_prefix, "lib"))
+            target:add("links", "python" .. python_ver, { public = true })
+        else
+            print("Warning: Could not detect Python environment. Please set CONDA_PREFIX or ensure python3 is in PATH.")
+        end
     end)
 
     add_includedirs("src/3rdparty", { public = true })
@@ -78,7 +95,6 @@ target("engine")
     add_headerfiles("src/3rdparty/**.hpp")
     add_files      ("src/3rdparty/**.cpp")
     add_headerfiles("src/VCX/Assets/**.h")
-    add_headerfiles("src/VCX/Assets/**.hpp")
     add_headerfiles("src/VCX/Engine/**.h")
     add_headerfiles("src/VCX/Engine/**.hpp")
     add_files      ("src/VCX/Engine/**.cpp")
@@ -92,9 +108,9 @@ target("lab-common")
 
 target("NeuralPhysicsSubspaces")
     set_kind("binary")
+    add_rules("c++.unity_build", {batchsize = 0})
     add_deps("lab-common")
     add_packages("eigen")
     set_rundir(os.projectdir()) 
     add_headerfiles("src/VCX/Labs/Core/*.h")
-    add_headerfiles("src/VCX/Labs/Core/*.hpp")
     add_files      ("src/VCX/Labs/Core/*.cpp")

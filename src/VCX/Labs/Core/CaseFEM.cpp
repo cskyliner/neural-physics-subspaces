@@ -20,8 +20,8 @@ CaseFEM::CaseFEM(const std::string& pythonPath)
     }()),
       _program(
           Engine::GL::UniqueProgram({
-              Engine::GL::SharedShader("assets/shaders/flat_color.vert"),
-              Engine::GL::SharedShader("assets/shaders/flat_color.frag") })),
+              Engine::GL::SharedShader("assets/shaders/lit_flat_color.vert"),
+              Engine::GL::SharedShader("assets/shaders/lit_flat_color.frag") })),
       _meshItem(Engine::GL::VertexLayout()
           .Add<glm::vec3>("position", Engine::GL::DrawFrequency::Stream, 0)
           .Add<glm::vec3>("color", Engine::GL::DrawFrequency::Stream, 1), 
@@ -34,7 +34,7 @@ CaseFEM::CaseFEM(const std::string& pythonPath)
     _cameraManager.AutoRotate = false;
     _cameraManager.Save(_camera);
     
-    // 加载默认问题并初始化Python桥接（使用_problemNames的第一个）
+    // 加载默认问题（使用_problemNames的第一个）并初始化Python桥接
     LoadProblem(_currentProblem);
     
     spdlog::info("[CaseFEM] Initialized with problem: {}", _currentProblem);
@@ -122,11 +122,14 @@ void CaseFEM::OnSetupPropsUI() {
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Description:");
         ImGui::Indent();
         if (_currentProblem == "bistable") {
-            ImGui::BulletText("A bistable beam that can switch between two stable states under external forces");
+            ImGui::BulletText("A bistable beam");
         } else if (_currentProblem == "load3d") {
-            ImGui::BulletText("A 3D beam, fixed at one end and subjected to a downward load at the other end");
+            ImGui::BulletText("A 3D beam");
+            ImGui::BulletText("Fixed at one end, loaded at the other");
         } else if (_currentProblem == "heterobeam") {
-            ImGui::BulletText("A 3D beam with heterogeneous material properties, fixed at one end and loaded at the other");
+            ImGui::BulletText("A 3D beam");
+            ImGui::BulletText("Heterogeneous material properties");
+            ImGui::BulletText("Fixed at one end, loaded at the other");
         }
         ImGui::Unindent();
     }
@@ -148,37 +151,6 @@ void CaseFEM::OnSetupPropsUI() {
     }
     ImGui::Spacing();
     
-    // ==================== 子空间探索 ====================
-    if (_useSubspace && ImGui::CollapsingHeader("Latent Space Explorer")) {
-        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1.0f), 
-                          "Explore the learned low-dimensional manifold");
-        ImGui::Spacing();
-        
-        bool changed = false;
-        
-        for (size_t i = 0; i < _latentState.size(); ++i) {
-            char label[32];
-            snprintf(label, sizeof(label), "z[%zu]", i);
-            
-            float val = static_cast<float>(_latentState[i]);
-            if (ImGui::SliderFloat(label, &val, -2.0f, 2.0f)) {
-                _latentState[i] = val;
-                changed = true;
-            }
-        }
-        
-        if (changed) {
-            _physics->SetState(_latentState);
-        }
-        
-        ImGui::Spacing();
-        if (ImGui::Button("Reset to Origin", ImVec2(-1, 0))) {
-            std::fill(_latentState.begin(), _latentState.end(), 0.0);
-            _physics->SetState(_latentState);
-        }
-    }
-    ImGui::Spacing();
-    
     // ==================== 操控部分 ====================
     if (ImGui::CollapsingHeader("Simulation Control", ImGuiTreeNodeFlags_DefaultOpen)) {
         // 势能显示
@@ -192,7 +164,7 @@ void CaseFEM::OnSetupPropsUI() {
         ImGui::Separator();
         
         // 控制按钮
-        if (ImGui::Button("Reset System", ImVec2(120, 0))) {
+        if (ImGui::Button("Reset System", ImVec2(200, 0))) {
             _physics->ResetState();
             if (_useSubspace) {
                 _latentState = _physics->GetState();
@@ -200,7 +172,7 @@ void CaseFEM::OnSetupPropsUI() {
         }
         ImGui::SameLine();
         
-        if (ImGui::Button("Stop Velocity", ImVec2(120, 0))) {
+        if (ImGui::Button("Stop Velocity", ImVec2(200, 0))) {
             _physics->StopVelocity();
         }
         
@@ -210,7 +182,7 @@ void CaseFEM::OnSetupPropsUI() {
         ImGui::Checkbox("Run Simulation", &_runSimulation);
         
         ImGui::SameLine();
-        if (ImGui::Button("Single Step", ImVec2(100, 0))) {
+        if (ImGui::Button("Single Step", ImVec2(200, 0))) {
             _physics->Timestep(_timestep);
             if (_useSubspace) {
                 _latentState = _physics->GetState();
@@ -272,7 +244,6 @@ void CaseFEM::OnSetupPropsUI() {
     
     // ==================== 渲染设置 ====================
     if (ImGui::CollapsingHeader("Visualization")) {
-        ImGui::ColorEdit3("Mesh Color", glm::value_ptr(_meshColor));
         ImGui::Checkbox("Wireframe Mode", &_showWireframe);
         ImGui::SliderFloat("Transparency", &_transparency, 0.0f, 1.0f);
     }
@@ -286,19 +257,11 @@ void CaseFEM::OnSetupPropsUI() {
         ImGui::BulletText("Middle Mouse: Pan camera");
         ImGui::BulletText("Mouse Wheel: Zoom in/out");
         ImGui::Unindent();
-        
-        ImGui::Spacing();
-        ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "TODO:Keyboard Shortcuts:");
-        ImGui::Indent();
-        ImGui::BulletText("Space: Start/Stop simulation");
-        ImGui::BulletText("R: Reset system");
-        ImGui::Unindent();
     }
 }
 
 Common::CaseRenderResult CaseFEM::OnRender(
-    std::pair<std::uint32_t, std::uint32_t> const desiredSize) {
-    
+    std::pair<std::uint32_t, std::uint32_t> const desiredSize) { 
     // 执行仿真
     if (_runSimulation) {
         _physics->Timestep(_timestep);
@@ -395,11 +358,27 @@ void CaseFEM::RenderScene(std::pair<std::uint32_t, std:: uint32_t> const size) {
     _program. GetUniforms().SetByName("u_Projection", projection);
     _program.GetUniforms().SetByName("u_View", view);
     _program.GetUniforms().SetByName("u_Model", glm::mat4(1.0f));
+    _program.GetUniforms().SetByName("u_Alpha", _transparency);
     
     gl_using(_frame);
     glClearColor(0.2f, 0.2f, 0.25f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
+    
+    // 根据透明度启用 alpha 混合
+    if (_transparency < 1.0f) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    } else {
+        glDisable(GL_BLEND);
+    }
+    
+    // 根据 _showWireframe 设置多边形模式
+    if (_showWireframe) {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    } else {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
     
     _meshItem.Draw({ _program. Use() });
 }
@@ -408,4 +387,4 @@ void CaseFEM::OnProcessInput(ImVec2 const & pos) {
     _cameraManager.ProcessInput(_camera, pos);
 }
 
-} // namespace VCX:: Labs::NeuralPhysics
+} // namespace VCX::Labs::NeuralPhysicsSubspaces

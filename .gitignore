@@ -8,4 +8,6 @@ vsxmake*
 docs/html
 docs/latex
 
+output/
+
 .DS_Store

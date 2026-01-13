@@ -1,31 +1,35 @@
 #pragma once
 
 #include "Engine/app.h"
-#include "Engine/Python/FEMPhysicsBridge.h"
+#include "Engine/Python/Rigid3DPhysicsBridge.h"
 #include "Engine/GL/Frame.hpp"
 #include "Engine/GL/Program.h"
 #include "Engine/GL/RenderItem.h"
 #include "Labs/Common/ICase.h"
 #include "Labs/Common/OrbitCameraManager.h"
 #include "ModelLoader.h"
-
 #include <memory>
 #include <vector>
 #include <string>
 
 namespace VCX::Labs::NeuralPhysicsSubspaces {
 
-class CaseFEM : public Common::ICase {
+class CaseRigid3DSpaces : public Common::ICase {
 private:
     // Python 物理引擎
-    std::unique_ptr<Engine::Python::FEM::PhysicsBridge> _physics;
+    std::unique_ptr<Engine::Python::Rigid3D::PhysicsBridge> _physics;
     std::string _pythonPath;
     
-    // 问题选择
+    // 问题与模型选择
+    std::vector<std::string> _problemNames = {"klann", "stewart"};
     int _currentProblemIdx = 0;
-    std:: vector<std::string> _problemNames = {"bistable", "load3d", "heterobeam"};
-    std::string _currentProblem = "bistable";
+    std::string _currentProblem = "klann";
+    int _currentDim = 8;
+    std::string _currentWexp = "wexp1";
+    int _selectedCheckpoint = -1;  // -1 for final
+    CheckpointRange _currentRange;
     bool _needReload = false;
+    
     
     // 系统信息
     int _fullDim = 0;
@@ -46,13 +50,13 @@ private:
         bool hasExternalForces = false;
         float forceStrengthMin = -10.0f;
         float forceStrengthMax = 10.0f;
-        bool forceStrengthX = false;
-        bool forceStrengthY = false;
-        bool forceStrengthZ = false;
+        float forceStrengthX = 0.0f;
+        float forceStrengthY = 0.0f;
+        float forceStrengthZ = 0.0f;
         bool has_X = false;
         bool has_Y = false;
         bool has_Z = false;
-        float pullStrength = 0.0f;  // 统一的力强度控制
+        float unifiedStrength = 0.0f;  // 可选统一强度
     } _externalParams;
     
     // 渲染参数
@@ -64,25 +68,23 @@ private:
     Engine::GL::UniqueProgram _program;
     Engine::GL::UniqueRenderFrame _frame;
     Engine::GL::UniqueIndexedRenderItem _meshItem;
-    Engine::GL::UniqueIndexedRenderItem _endcapsItem;  // bistable的端盖
-    bool _showEndcaps = false;  // 是否显示endcaps
     
     // 相机
     Common::OrbitCameraManager _cameraManager;
     Engine::Camera _camera;
     
     // 内部方法
-    void LoadProblem(const std::string& problemName);
+    void LoadSelectedModel();
     void LoadExternalParams();
     void ApplyExternalParams();
     void UpdateVisualization();
     void RenderScene(std::pair<std::uint32_t, std::uint32_t> const size);
 
 public:
-    CaseFEM(const std::string& pythonPath = "");
+    CaseRigid3DSpaces(const std::string& pythonPath = "");
     
     virtual std::string_view const GetName() override { 
-        return "FEM System"; 
+        return "Rigid 3D System"; 
     }
     
     virtual void OnSetupPropsUI() override;
@@ -90,4 +92,4 @@ public:
     virtual void OnProcessInput(ImVec2 const & pos) override;
 };
 
-} // namespace VCX:: Labs::NeuralPhysics
+} // namespace VCX:: Labs::NeuralPhysicsSubspaces

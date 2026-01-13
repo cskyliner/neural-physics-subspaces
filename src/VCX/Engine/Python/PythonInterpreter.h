@@ -6,7 +6,7 @@
 namespace VCX::Engine::Python {
 
 // 全局 Python 解释器单例管理
-// 确保整个程序只有一个 Python 解释器实例
+// 确保整个程序只有一个 Python 解释器实例,避免发生冲突
 class PythonInterpreter {
 public:
     // 获取全局解释器单例

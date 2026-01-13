@@ -4,6 +4,8 @@ namespace VCX::Labs::NeuralPhysicsSubspaces {
     App::App() : 
         _caseFEM(), // 这里可以传入Python路径参数，也可以自动检测
         _caseRigid3D(),
+        _caseFEMSpaces(),
+        _caseRigid3DSpaces(),
         _ui(Labs::Common::UIOptions { })  {
     }
 
