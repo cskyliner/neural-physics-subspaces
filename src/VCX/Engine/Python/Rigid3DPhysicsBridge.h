@@ -6,6 +6,8 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <string>
+#include "Engine/Mesh/MeshDataLoader.h"
+#include "Engine/Mesh/VisualizationBuilder.h"
 
 namespace py = pybind11;
 
@@ -85,6 +87,9 @@ private:
     py::object _subspace_apply;     // 子空间映射函数
     py::object _subspace_domain_dict; // 子空间域信息
     double _t_schedule_final;       // 扩散调度最终值
+    
+    // C++网格数据（无需Python）
+    Mesh::Rigid3DMeshData _meshData;
     
     void InitializePython(const std::string& pythonPath);
     void LoadSystem(const std::string& systemName, 

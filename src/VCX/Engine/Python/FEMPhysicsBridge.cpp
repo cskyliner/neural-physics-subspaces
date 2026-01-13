@@ -69,9 +69,33 @@ void PhysicsBridge::LoadSystem(const std::string& systemName,
     _system = result[0];
     _system_def = result[1];
     
-    // 获取维度信息
-    _fullDim = py::cast<int>(_system_def["init_pos"].attr("size"));
+    // 获取维度信息（pos_dim 与 python 一致）
     _posDim = py::cast<int>(_system.attr("pos_dim"));
+
+    // 加载C++网格数据（无需Python）
+    _meshData = Mesh::MeshDataLoader::LoadFEMMesh(problemName);
+    _meshData.pos_dim = _posDim;
+
+    // 同步 Python 侧 fixed/unfixed 信息，便于可视化展开 DOF
+    try {
+        py::dict sys = _system_def.cast<py::dict>();
+        if (sys.contains("fixed_inds")) {
+            _meshData.fixed_inds = sys["fixed_inds"].cast<std::vector<int>>();
+        }
+        if (sys.contains("unfixed_inds")) {
+            _meshData.unfixed_inds = sys["unfixed_inds"].cast<std::vector<int>>();
+        }
+        if (sys.contains("fixed_values")) {
+            _meshData.fixed_values = sys["fixed_values"].cast<std::vector<double>>();
+        }
+    } catch (const std::exception& e) {
+        spdlog::warn("[PhysicsBridge] sync fixed/unfixed info failed: {}", e.what());
+    }
+
+    _fullDim = static_cast<int>(_meshData.Vrest.size() * _posDim);
+
+    spdlog::info("[PhysicsBridge] Loaded C++ mesh: {} verts, {} tris", 
+                 _meshData.Vrest.size(), _meshData.E_tri.size());
     
     // 检查是否使用子空间
     _useSubspace = !subspaceModelPath.empty();
@@ -312,224 +336,54 @@ MeshVisualizationData PhysicsBridge::GetVisualizationData() {
     MeshVisualizationData data;
     
     try {
-        py::module_ np = py::module_::import("numpy");
-        
-        // 获取当前状态
+        // 获取当前状态（从Python）
         py::object q = StateToSystem(_int_state["q_t"]);
         
-        // 调试：打印状态形状
-        py::object q_shape = q.attr("shape");
-        int q_size = py::cast<py::tuple>(q_shape)[0].cast<int>();
-        spdlog::debug("[PhysicsBridge] GetVisualizationData: q.shape={}, fullDim={}, useSubspace={}", 
-                     q_size, _fullDim, _useSubspace);
+        // 转换为C++ vector
+        py::array_t<double> q_array = py::cast<py::array_t<double>>(q);
+        auto q_buf = q_array.request();
+        std::vector<double> q_vec(q_buf.size);
+        double* q_ptr = static_cast<double*>(q_buf.ptr);
+        for (size_t i = 0; i < q_buf.size; i++) {
+            q_vec[i] = q_ptr[i];
+        }
+        
+        // 如果 q 仍是“自由 DOF”长度，先展开到全空间
+        const size_t expected_full = _meshData.Vrest.size() * _meshData.pos_dim;
+        if (q_vec.size() != expected_full && !_meshData.unfixed_inds.empty() && !_meshData.fixed_inds.empty()) {
+            std::vector<double> full_q(expected_full, 0.0);
 
-        // 使用get_visualization_data方法获取网格数据
-        py::dict mesh_data = py::cast<py::dict>(
-            _system.attr("get_visualization_data")(_system, _system_def, q)
-        );
-        
-        MeshVisualizationData::Body body;
-        
-        // 获取顶点数据
-        py::array_t<double> verts_array = py::cast<py::array_t<double>>(
-            np.attr("array")(mesh_data["vertices"])
-        );
-        auto verts_buf = verts_array.request();
-        int numVerts = verts_buf.shape[0];
-        int dim = verts_buf.shape[1];
-        double* verts_ptr = static_cast<double*>(verts_buf.ptr);
-        
-        for (int i = 0; i < numVerts; i++) {
-            if (dim == 2) {
-                body.vertices.push_back(glm::vec3(
-                    static_cast<float>(verts_ptr[i * dim + 0]),
-                    static_cast<float>(verts_ptr[i * dim + 1]),
-                    0.0f
-                ));
+            const size_t fixed_n = std::min(_meshData.fixed_inds.size(), _meshData.fixed_values.size());
+            for (size_t i = 0; i < fixed_n; i++) {
+                int idx = _meshData.fixed_inds[i];
+                if (idx >= 0 && static_cast<size_t>(idx) < full_q.size()) {
+                    full_q[idx] = _meshData.fixed_values[i];
+                }
+            }
+
+            if (q_vec.size() == _meshData.unfixed_inds.size()) {
+                for (size_t i = 0; i < _meshData.unfixed_inds.size(); i++) {
+                    int idx = _meshData.unfixed_inds[i];
+                    if (idx >= 0 && static_cast<size_t>(idx) < full_q.size()) {
+                        full_q[idx] = q_vec[i];
+                    }
+                }
+                q_vec.swap(full_q);
             } else {
-                body.vertices.push_back(glm::vec3(
-                    static_cast<float>(verts_ptr[i * dim + 0]),
-                    static_cast<float>(verts_ptr[i * dim + 1]),
-                    static_cast<float>(verts_ptr[i * dim + 2])
-                ));
+                spdlog::warn("[PhysicsBridge] q size {} mismatch with unfixed {}, skip expansion", q_vec.size(), _meshData.unfixed_inds.size());
             }
         }
+
+        // 使用C++生成可视化数据（无需调用Python）
+        auto bodies = Mesh::VisualizationBuilder::BuildFEMVisualization(_meshData, q_vec);
         
-        // 获取面数据
-        py::array_t<int> faces_array = py::cast<py::array_t<int>>(
-            np.attr("array")(mesh_data["faces"])
-        );
-        auto faces_buf = faces_array.request();
-        int numFaces = faces_buf.shape[0];
-        int* faces_ptr = static_cast<int*>(faces_buf.ptr);
-        
-        for (int i = 0; i < numFaces; i++) {
-            body.faces.push_back(glm::uvec3(
-                faces_ptr[i * 3 + 0],
-                faces_ptr[i * 3 + 1],
-                faces_ptr[i * 3 + 2]
-            ));
-        }
-        
-        // 获取regions/材料颜色（如果有）
-        if (mesh_data.contains("regions")) {
-            py::array_t<int> regions_array = py::cast<py::array_t<int>>(
-                np.attr("array")(mesh_data["regions"])
-            );
-            auto regions_buf = regions_array.request();
-            int* regions_ptr = static_cast<int*>(regions_buf.ptr);
-            int numRegions = regions_buf.shape[0];
-            
-            // 检查face_type，判断是否需要映射regions
-            std::string face_type = mesh_data.contains("face_type") 
-                ? py::cast<std::string>(mesh_data["face_type"]) 
-                : "unknown";
-            
-            // 如果是boundary triangles且regions数量与faces不匹配，需要映射
-            if (face_type == "surface" && numRegions != numFaces) {
-                // regions是基于tets的，需要为每个boundary face找到对应的tet
-                py::object mesh = _system.attr("mesh");
-                py::array_t<int> tets_array = py::cast<py::array_t<int>>(
-                    np.attr("array")(mesh["E"])
-                );
-                auto tets_buf = tets_array.request();
-                int* tets_ptr = static_cast<int*>(tets_buf.ptr);
-                int numTets = tets_buf.shape[0];
-                
-                // 为每个boundary face找到包含它的tet
-                for (int i = 0; i < numFaces; i++) {
-                    const auto& face = body.faces[i];
-                    std::set<int> face_verts = {(int)face.x, (int)face.y, (int)face.z};
-                    
-                    int found_region = 0;  // 默认region
-                    // 查找包含这三个顶点的tet
-                    for (int t = 0; t < numTets; t++) {
-                        std::set<int> tet_verts = {
-                            tets_ptr[t * 4 + 0],
-                            tets_ptr[t * 4 + 1],
-                            tets_ptr[t * 4 + 2],
-                            tets_ptr[t * 4 + 3]
-                        };
-                        
-                        // 检查face的三个顶点是否都在tet中
-                        bool all_in = true;
-                        for (int v : face_verts) {
-                            if (tet_verts.find(v) == tet_verts.end()) {
-                                all_in = false;
-                                break;
-                            }
-                        }
-                        
-                        if (all_in) {
-                            found_region = regions_ptr[t];
-                            break;
-                        }
-                    }
-                    
-                    // 根据region分配颜色
-                    glm::vec3 color;
-                    if (found_region == 0) {
-                        color = glm::vec3(0.3f, 0.5f, 0.9f);  // 蓝色
-                    } else if (found_region == 1) {
-                        color = glm::vec3(0.4f, 0.8f, 0.4f);  // 绿色
-                    } else if (found_region == 2) {
-                        color = glm::vec3(0.9f, 0.4f, 0.3f);  // 红色
-                    } else {
-                        color = glm::vec3(0.7f, 0.7f, 0.7f);  // 灰色
-                    }
-                    body.colors.push_back(color);
-                }
-            } else {
-                // regions直接对应faces（2D情况或volume渲染）
-                for (int i = 0; i < numFaces; i++) {
-                    int region = i < numRegions ? regions_ptr[i] : 0;
-                    glm::vec3 color;
-                    if (region == 0) {
-                        color = glm::vec3(0.3f, 0.5f, 0.9f);  // 蓝色
-                    } else if (region == 1) {
-                        color = glm::vec3(0.4f, 0.8f, 0.4f);  // 绿色
-                    } else if (region == 2) {
-                        color = glm::vec3(0.9f, 0.4f, 0.3f);  // 红色
-                    } else {
-                        color = glm::vec3(0.7f, 0.7f, 0.7f);
-                    }
-                    body.colors.push_back(color);
-                }
-            }
-        }
-        
-        data.bodies.push_back(body);
-        
-        // 处理额外的几何体（比如bistable的endcaps）
-        if (mesh_data.contains("extra_vertices") && mesh_data.contains("extra_faces")) {
-            MeshVisualizationData::Body extra_body;
-            
-            // 获取额外的顶点
-            py::array_t<double> extra_verts_array = py::cast<py::array_t<double>>(
-                np.attr("array")(mesh_data["extra_vertices"])
-            );
-            auto extra_verts_buf = extra_verts_array.request();
-            int numExtraVerts = extra_verts_buf.shape[0];
-            int extraDim = extra_verts_buf.shape[1];
-            double* extra_verts_ptr = static_cast<double*>(extra_verts_buf.ptr);
-            
-            for (int i = 0; i < numExtraVerts; i++) {
-                if (extraDim == 2) {
-                    extra_body.vertices.push_back(glm::vec3(
-                        static_cast<float>(extra_verts_ptr[i * extraDim + 0]),
-                        static_cast<float>(extra_verts_ptr[i * extraDim + 1]),
-                        0.0f
-                    ));
-                } else {
-                    extra_body.vertices.push_back(glm::vec3(
-                        static_cast<float>(extra_verts_ptr[i * extraDim + 0]),
-                        static_cast<float>(extra_verts_ptr[i * extraDim + 1]),
-                        static_cast<float>(extra_verts_ptr[i * extraDim + 2])
-                    ));
-                }
-            }
-            
-            // 获取额外的面
-            py::array_t<int> extra_faces_array = py::cast<py::array_t<int>>(
-                np.attr("array")(mesh_data["extra_faces"])
-            );
-            auto extra_faces_buf = extra_faces_array.request();
-            int numExtraFaces = extra_faces_buf.shape[0];
-            int vertsPerFace = extra_faces_buf.shape[1];
-            int* extra_faces_ptr = static_cast<int*>(extra_faces_buf.ptr);
-            
-            // 检查是四边形还是三角形
-            if (vertsPerFace == 4) {
-                // 四边形，分解为两个三角形
-                for (int i = 0; i < numExtraFaces; i++) {
-                    int v0 = extra_faces_ptr[i * 4 + 0];
-                    int v1 = extra_faces_ptr[i * 4 + 1];
-                    int v2 = extra_faces_ptr[i * 4 + 2];
-                    int v3 = extra_faces_ptr[i * 4 + 3];
-                    
-                    // 第一个三角形: v0, v1, v2
-                    extra_body.faces.push_back(glm::uvec3(v0, v1, v2));
-                    // 第二个三角形: v0, v2, v3
-                    extra_body.faces.push_back(glm::uvec3(v0, v2, v3));
-                }
-            } else {
-                // 三角形
-                for (int i = 0; i < numExtraFaces; i++) {
-                    extra_body.faces.push_back(glm::uvec3(
-                        extra_faces_ptr[i * 3 + 0],
-                        extra_faces_ptr[i * 3 + 1],
-                        extra_faces_ptr[i * 3 + 2]
-                    ));
-                }
-            }
-            
-            // 为额外几何体设置统一的灰色
-            glm::vec3 grayColor(0.7f, 0.7f, 0.7f);
-            for (size_t i = 0; i < extra_body.faces.size(); i++) {
-                extra_body.colors.push_back(grayColor);
-            }
-            
-            data.bodies.push_back(extra_body);
+        // 转换为返回格式
+        for (auto& body : bodies) {
+            MeshVisualizationData::Body result_body;
+            result_body.vertices = body.vertices;
+            result_body.faces = body.faces;
+            result_body.colors = body.colors;
+            data.bodies.push_back(result_body);
         }
         
     } catch (const std::exception& e) {

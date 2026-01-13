@@ -74,6 +74,10 @@ void PhysicsBridge::LoadSystem(const std::string& systemName,
     _fullDim = py::cast<int>(_system_def["init_pos"].attr("size"));
     _posDim = py::cast<int>(_system.attr("pos_dim"));
     
+    // 加载C++网格数据（无需Python）
+    _meshData = Mesh::MeshDataLoader::LoadRigid3DMesh(problemName);
+    spdlog::info("[PhysicsBridge] Loaded C++ rigid mesh: {} bodies", _meshData.bodies.size());
+    
     // 检查是否使用子空间
     _useSubspace = !subspaceModelPath.empty();
     
@@ -270,75 +274,33 @@ MeshVisualizationData PhysicsBridge::GetVisualizationData() {
     MeshVisualizationData data;
     
     try {
-        py::module_ np = py::module_::import("numpy");
+        // 获取当前状态（从Python，包含固定+可动刚体）
+        py::object q_movable = StateToSystem(_int_state["q_t"]);
+        py::object fixed_pos = _system_def["fixed_pos"];
         
-        // 获取当前状态
-        py::object q = StateToSystem(_int_state["q_t"]);
+        // 合并fixed和movable
+        py::module_ jnp = py::module_::import("jax.numpy");
+        py::object q_full = jnp.attr("concatenate")(py::make_tuple(fixed_pos, q_movable));
         
-        py::object bodies_data = _system.attr("get_visualization_data")(_system, _system_def, q);
-        py::list bodies_list = py::cast<py::list>(bodies_data);
+        // 转换为C++ vector
+        py::array_t<double> q_array = py::cast<py::array_t<double>>(q_full);
+        auto q_buf = q_array.request();
+        std::vector<double> q_vec(q_buf.size);
+        double* q_ptr = static_cast<double*>(q_buf.ptr);
+        for (size_t i = 0; i < q_buf.size; i++) {
+            q_vec[i] = q_ptr[i];
+        }
         
-        // 遍历每个刚体
-        for (size_t bid = 0; bid < bodies_list.size(); bid++) {
-            py::dict body_dict = py::cast<py::dict>(bodies_list[bid]);
-            
-            MeshVisualizationData::Body body;
-            
-            // 获取顶点数据
-            py::array_t<double> verts_array = py::cast<py::array_t<double>>(
-                np.attr("array")(body_dict["vertices"])
-            );
-            auto verts_buf = verts_array.request();
-            int numVerts = verts_buf.shape[0];
-            double* verts_ptr = static_cast<double*>(verts_buf.ptr);
-            
-            // Rigid3D总是3D的
-            for (int i = 0; i < numVerts; i++) {
-                body.vertices.push_back(glm::vec3(
-                    static_cast<float>(verts_ptr[i * 3 + 0]),
-                    static_cast<float>(verts_ptr[i * 3 + 1]),
-                    static_cast<float>(verts_ptr[i * 3 + 2])
-                ));
-            }
-            
-            // 获取面数据
-            py::array_t<int> faces_array = py::cast<py::array_t<int>>(
-                np.attr("array")(body_dict["faces"])
-            );
-            auto faces_buf = faces_array.request();
-            int numFaces = faces_buf.shape[0];
-            int* faces_ptr = static_cast<int*>(faces_buf.ptr);
-            
-            for (int i = 0; i < numFaces; i++) {
-                body.faces.push_back(glm::uvec3(
-                    faces_ptr[i * 3 + 0],
-                    faces_ptr[i * 3 + 1],
-                    faces_ptr[i * 3 + 2]
-                ));
-            }
-            
-            // 为每个刚体自动分配不同颜色（模拟 Polyscope 行为）
-            glm::vec3 bodyColor;
-            float hue = static_cast<float>(bid) / static_cast<float>(bodies_list.size()) * 360.0f;
-            // 使用 HSV 转 RGB 来生成均匀分布的颜色
-            float h = hue / 60.0f;
-            float c = 0.7f;  // 饱和度
-            float x = c * (1.0f - std::abs(std::fmod(h, 2.0f) - 1.0f));
-            float m = 0.3f;  // 亮度偏移
-            
-            if (h < 1.0f)      bodyColor = glm::vec3(c, x, 0) + m;
-            else if (h < 2.0f) bodyColor = glm::vec3(x, c, 0) + m;
-            else if (h < 3.0f) bodyColor = glm::vec3(0, c, x) + m;
-            else if (h < 4.0f) bodyColor = glm::vec3(0, x, c) + m;
-            else if (h < 5.0f) bodyColor = glm::vec3(x, 0, c) + m;
-            else               bodyColor = glm::vec3(c, 0, x) + m;
-            
-            // 为这个刚体的所有面设置相同的颜色
-            for (int i = 0; i < numFaces; i++) {
-                body.colors.push_back(bodyColor);
-            }
-            
-            data.bodies.push_back(body);
+        // 使用C++生成可视化数据（无需调用Python）
+        auto bodies = Mesh::VisualizationBuilder::BuildRigid3DVisualization(_meshData, q_vec);
+        
+        // 转换为返回格式
+        for (auto& body : bodies) {
+            MeshVisualizationData::Body result_body;
+            result_body.vertices = body.vertices;
+            result_body.faces = body.faces;
+            result_body.colors = body.colors;
+            data.bodies.push_back(result_body);
         }
         
     } catch (const std::exception& e) {

@@ -9,11 +9,11 @@ neural-physics-hybrid/
 ├── xmake.lua                           # 构建配置
 ├── src/
 |   ├── python/                         # 物理模拟和训练代码
-|   │   ├── fem_model.py
-|   │   ├── rigid3d_model.py
-|   │   ├── integrators.py
-|   │   ├── subspace.py
-|   │   |── layers.py
+|   │   ├── fem_model.py                # 有限元模型实现
+|   │   ├── rigid3d_model.py            # 刚体模型实现
+|   │   ├── integrators.py              # 积分器实现
+|   │   ├── subspace.py                 # 子空间方法实现
+|   │   |── layers.py                   # 神经网络层实现
 |   │   |── main_learn_subspace.py      # 训练脚本
 |   │   |── main_run_system.py          # 运行脚本
 |   │   |── minimize.py                 # 优化器实现
@@ -26,6 +26,11 @@ neural-physics-hybrid/
 │       |--Assets/                          # 资源文件，负责图标和字体的设置
 │       |--Engine/
 |           |--GL/                          # 基本渲染
+|           |--Mesh/                        # 网格数据处理模块
+|               |--MeshDataLoader.h         # 网格加载器头文件
+|               |--MeshDataLoader.cpp       # 网格加载器实现
+|               |--VisualizationBuilder.h   # 可视化构建器头文件
+|               |--VisualizationBuilder.cpp # 可视化构建器实现）
 |           |--Python/                      # Python 交互模块
 |               |--PythonInterpreter.h      # 全局 Python 解释器单例
 |               |--FEMPhysicsBridge.h       # FEM 物理接口包装
@@ -56,8 +61,8 @@ neural-physics-hybrid/
 |       |── flat_color.frag                 # 平面着色器片段程序
 |       |── lit_flat_color.vert             # 光照平面着色器顶点程序
 |       └── lit_flat_color.frag             # 光照平面着色器片段程序
-|--data/                                    # 物理模拟几何结构数据
-|--output/                                  # 记录data-free训练参数和一些相关配置
+|--data/                                    # 物理模拟几何结构数据（支持Triangle 2D/3D、MEDIT .mesh、Wavefront OBJ）
+|--output/                                  # 记录训练参数和一些相关配置
 ```
 
 ## 环境配置与运行方式
@@ -65,20 +70,7 @@ neural-physics-hybrid/
 **注意**：
 
 强烈建议使用**conda**进行环境管理，以避免依赖冲突问题或者python路径检测失败问题
-
-同时确保安装JAX库，可以参考官方安装：<https://jax.readthedocs.io/en/latest/>
-
-CPU-only (Linux/macOS/Windows)
-
-```bash
-pip install -U jax
-```
-
-GPU (NVIDIA, CUDA 13)
-
-```bash
-pip install -U "jax[cuda13]"
-```
+（因为项目中涉及到C++与Python的交互，路径问题会导致运行失败）。
 
 ### 可视化界面运行
 
@@ -91,7 +83,21 @@ conda env create -f environment.yml
 conda activate neural-physics-subspaces
 ```
 
-+ 使用XMAKE编译项目：（因为项目编译内容较多，推荐使用单线程编译以避免并发问题）
+同时确保安装JAX库，可以参考官方安装：<https://jax.readthedocs.io/en/latest/>
+
+CPU-only (Linux/macOS/Windows)
+
+```bash
+pip install -U jax
+```
+
+GPU (NVIDIA, CUDA 13)(Linux)注意这里的CUDA版本需要和本地环境匹配，而且JAX暂不支持WindowsGPU模式：
+
+```bash
+pip install -U "jax[cuda13]"
+```
+
++ 使用XMAKE编译项目：（因为项目编译内容较多，这里推荐使用单线程`-j1`编译以避免并发问题或者内存占用问题）
 
 ```bash
 xmake build -j1
@@ -115,3 +121,12 @@ python python/main_learn_subspace.py --system_name [system_name] --problem_name 
 ```
 
 其中`[system_name]`和`[problem_name]`可以参考`system_templates.py`中的定义。而`subspace_dim`，`weight_expand`和`sigma_scale`均为超参数，可以根据需要进行调整。具体调整方式可以查看[论文](https://arxiv.org/abs/2305.03846)。
+
+### 运行训练结果
+
+对于模型的提取已经集成到程序中，可以直接在可视化界面中加载训练结果进行模拟和可视化。
+这里我们给出了一些预先训练好的模型，可供下载和测试
+
+-[Download models v1.0](https://github.com/cskyliner/neural-physics-subspaces/releases/download/v1.0-model/output.zip)
+
+下载后解压到项目根目录中即可。获得的output/文件夹负责存放训练结果。
