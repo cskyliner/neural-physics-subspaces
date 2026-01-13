@@ -53,12 +53,32 @@ target("engine")
         local conda_prefix = os.getenv("CONDA_PREFIX")
         local python_path = nil
         local python_version = nil
+        local python_version_short = nil
+        
+        -- 辅助函数：检测 Python 版本
+        local function detect_python_version(python_exe)
+            local version_output = os.iorun(python_exe .. " --version 2>&1")
+            if version_output then
+                -- 匹配 Python 3.x 或 Python 3.x.y
+                local major, minor = version_output:match("Python (%d+)%.(%d+)")
+                if major and minor then
+                    return major .. "." .. minor, major .. minor
+                end
+            end
+            return nil, nil
+        end
         
         if conda_prefix then
             -- 优先使用 Conda 环境
-            print("Using Conda Python: " .. conda_prefix)
-            python_path = conda_prefix
-            python_version = "39"
+            local python_exe = path.join(conda_prefix, is_host("windows") and "python.exe" or "bin/python")
+            python_version, python_version_short = detect_python_version(python_exe)
+            
+            if python_version then
+                print("Using Conda Python: " .. conda_prefix .. " (Python " .. python_version .. ")")
+                python_path = conda_prefix
+            else
+                print("Warning: Could not detect Python version in Conda environment")
+            end
         else
             -- 尝试从系统查找 Python
             print("CONDA_PREFIX not set, attempting to use system Python...")
@@ -70,47 +90,55 @@ target("engine")
                     -- 尝试使用 where python 命令
                     local result = os.iorun("where python")
                     if result then
-                        python_exe = path.directory(result:trim())
+                        python_exe = result:trim()
                     end
                 end
                 
                 if python_exe then
-                    python_path = python_exe
-                    -- 检测 Python 版本
-                    local version_result = os.iorun(path.join(python_exe, "python.exe") .. " --version")
-                    if version_result and version_result:find("3.9") then
-                        python_version = "39"
-                    elseif version_result and version_result:find("3.1") then
-                        python_version = "310"
-                    elseif version_result and version_result:find("3.11") then
-                        python_version = "311"
-                    else
-                        python_version = "39"  -- 默认 Python 3.9
+                    python_version, python_version_short = detect_python_version(python_exe)
+                    if python_version then
+                        python_path = path.directory(python_exe)
+                        print("Found Python at: " .. python_path .. " (Python " .. python_version .. ")")
                     end
-                    print("Found Python at: " .. python_path)
                 end
             else
                 -- Linux/macOS: 尝试从 which python3 获取
                 local python_exe = os.iorun("which python3")
                 if python_exe then
-                    python_path = path.directory(python_exe:trim())
-                    python_version = "39"  -- 假设 3.9
-                    print("Found Python at: " .. python_path)
+                    python_exe = python_exe:trim()
+                    python_version, python_version_short = detect_python_version(python_exe)
+                    if python_version then
+                        python_path = path.directory(path.directory(python_exe))  -- 去掉 /bin/python3 得到根目录
+                        print("Found Python at: " .. python_path .. " (Python " .. python_version .. ")")
+                    end
                 end
             end
         end
         
-        if python_path then
+        if python_path and python_version then
             if is_host("windows") then
                 target:add("includedirs", path.join(python_path, "include"), { public = true })
                 target:add("linkdirs", path.join(python_path, "libs"), { public = true })
-                target:add("links", "python" .. python_version, { public = true })
+                target:add("links", "python" .. python_version_short, { public = true })
             else
-                target:add("includedirs", path.join(python_path, "include/python3.9"), { public = true })
+                -- Linux/macOS: 动态查找 Python include 目录
+                local include_dir = path.join(python_path, "include/python" .. python_version)
+                if not os.isdir(include_dir) then
+                    -- 有些系统可能使用 python3.xm 这样的目录名
+                    include_dir = path.join(python_path, "include/python" .. python_version .. "m")
+                end
+                
+                target:add("includedirs", include_dir, { public = true })
                 target:add("linkdirs", path.join(python_path, "lib"), { public = true })
-                target:add("links", "python3.9", { public = true })
+                
+                -- 动态查找 libpython 库文件
+                local lib_name = "python" .. python_version
+                target:add("links", lib_name, { public = true })
+                
                 -- Set RPATH for Linux/macOS to find Python shared library at runtime
                 target:add("ldflags", "-Wl,-rpath," .. path.join(python_path, "lib"), { force = true, public = true })
+                
+                print("Python configuration: include=" .. include_dir .. ", lib=" .. lib_name)
             end
         else
             print("Warning: Could not find Python. Build may fail.")
