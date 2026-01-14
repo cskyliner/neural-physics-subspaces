@@ -106,7 +106,7 @@ void CaseFEM::ApplyExternalParams() {
 void CaseFEM::OnSetupPropsUI() {
     // ==================== 问题选择器 ====================
     if (ImGui::CollapsingHeader("Problem Selection", ImGuiTreeNodeFlags_DefaultOpen)) {
-        const char* problemItems[] = {"bistable", "load3d", "heterobeam", "spot"};
+        const char* problemItems[] = {"bistable", "load3d", "heterobeam"};
         
         if (ImGui::Combo("Problem Type", &_currentProblemIdx, problemItems, IM_ARRAYSIZE(problemItems))) {
             _needReload = true;
@@ -130,8 +130,6 @@ void CaseFEM::OnSetupPropsUI() {
             ImGui::BulletText("A 3D beam");
             ImGui::BulletText("Heterogeneous material properties");
             ImGui::BulletText("Fixed at one end, loaded at the other");
-        } else if (_currentProblem == "spot") {
-            ImGui::BulletText("A 3D spot cow model");
         }
         ImGui::Unindent();
     }

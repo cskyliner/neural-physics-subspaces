@@ -58,10 +58,10 @@ neural-physics-hybrid/
 |── assets/
 |   ├── shaders/                            # OpenGL 着色器
 |       ├── flat_color.vert                 # 平面着色器顶点程序
-|       |── flat_color.frag                 # 平面着色器片段程序
+|       |── flat_color.frag                 # 平面着色器片段程`序
 |       |── lit_flat_color.vert             # 光照平面着色器顶点程序
 |       └── lit_flat_color.frag             # 光照平面着色器片段程序
-|--data/                                    # 物理模拟几何结构数据（支持Triangle 2D/3D、MEDIT .mesh、Wavefront OBJ）
+|--data/                                    # 物理模拟几何结构数据
 |--output/                                  # 记录训练参数和一些相关配置
 ```
 

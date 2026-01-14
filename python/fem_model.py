@@ -519,44 +519,6 @@ class FEMSystem:
             system_def['init_pos'] = unfixed_values
             system.pos_dim = verts.shape[1]
             system.dim = system_def['init_pos'].size
-
-        elif problem_name == 'spot':
-            
-            mesh = load_tet_mesh( os.path.join(".", "data", "spot" ) )
-            mesh = precompute_mesh(mesh)
-            
-            system_def["gravity"] = jnp.array([0., 0., -0.98])
-            system_def['poisson'] = jnp.array(0.45)
-            system_def['Y'] = jnp.array(5e3)
-            system_def['density'] = jnp.array(100.0)
-
-            verts = jnp.array(mesh["Vrest"])
-
-            # Pin the top vertices (highest z values)
-            zmax = jnp.amax(verts, axis=0)[2]
-            pinned_verts_mask = verts[:,2] > zmax - 0.05  # Pin top 5% of height
-            pinned_verts_mask_flat = jnp.repeat(pinned_verts_mask, 3)
-            fixed_inds, unfixed_inds, fixed_values, unfixed_values = \
-                system_utils.generate_fixed_entry_data(pinned_verts_mask_flat, verts.flatten())
-            system_def["fixed_inds"] = fixed_inds
-            system_def["unfixed_inds"] = unfixed_inds
-            system_def["fixed_values"] = fixed_values
-
-            # Configure external forces at the bottom
-            zmin = jnp.amin(verts, axis=0)[2]
-            system_def['external_forces']['force_verts_mask'] = verts[:,2] < (zmin + 0.05)
-            system_def['external_forces']['pull_X'] = jnp.array(0.)
-            system_def['external_forces']['pull_Y'] = jnp.array(0.)
-            system_def['external_forces']['pull_Z'] = jnp.array(0.)
-            pull_minmax = (-0.01, 0.01)
-            system_def['external_forces']['pull_strength_minmax'] = pull_minmax
-            system_def['external_forces']['pull_strength'] = 0.5 * (pull_minmax[0] + pull_minmax[1])
-
-            system.mesh = mesh
-            system_def['init_pos'] = unfixed_values
-            system.pos_dim = verts.shape[1]
-            system.dim = system_def['init_pos'].size
-
         else:
             raise ValueError("unrecognized system problem_name")
         
@@ -725,8 +687,5 @@ class FEMSystem:
         utils.write_obj(filename, pos, np.array(tri_list))
 
     def visualize_set_nice_view(self, system_def, q):
-
-        if self.problem_name == 'spot':
-            ps.look_at((-1.2, 0.8, -1.8), (0., 0., 0.))
 
         ps.look_at((2., 1., 2.), (0., 0., 0.))
