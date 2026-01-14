@@ -23,6 +23,9 @@ FEMMeshData MeshDataLoader::LoadFEMMesh(const std::string& problem_name) {
     } else if (problem_name == "heterobeam") {
         LoadTetMesh("./data/heterobeam", mesh);
         mesh.pos_dim = 3;
+    } else if (problem_name == "spot") {
+        LoadTetMesh("./data/heterobeam", mesh);
+        mesh.pos_dim = 3;
     } else {
         spdlog::error("[MeshDataLoader] Unknown FEM problem: {}", problem_name);
         mesh.pos_dim = 2;

@@ -60,6 +60,9 @@ private:
     // 辅助函数：从 .mesh (MEDIT) 加载四面体网格
     static void LoadTetMeshMEDIT(const std::string& mesh_path, FEMMeshData& mesh);
     
+    // 辅助函数：从.obj加载FEM三角形网格
+    static void LoadObjMesh(const std::string& obj_path, FEMMeshData& mesh);
+    
     // 辅助函数：提取四面体边界三角形
     static std::vector<glm::uvec3> ExtractBoundaryTriangles(const std::vector<glm::uvec4>& tets);
     
